@@ -1,0 +1,72 @@
+# ── Python ─────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+build/
+eggs/
+parts/
+var/
+sdist/
+develop-eggs/
+.installed.cfg
+lib/
+lib64/
+
+# ── Virtual Environments ────────────────────────────────────────
+.venv/
+venv/
+ENV/
+env/
+
+# ── Environment Variables — NEVER COMMIT ───────────────────────
+.env
+.env.local
+.env.*.local
+# Keep .env.example — it is the safe template
+
+# ── Database files ──────────────────────────────────────────────
+*.db
+*.sqlite
+*.sqlite3
+# Covers both Backend/data/parcelpilot.db and Backend/parcelpilot.db
+parcelpilot.db
+
+# ── ChromaDB persistent store ───────────────────────────────────
+Backend/data/chroma_db/
+**/chroma_db/
+
+# ── Raw source data (PDFs, xlsx) — large binary files ──────────
+Backend/data/raw/
+
+# ── Test / coverage artefacts ───────────────────────────────────
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+*.junit.xml
+
+# ── IDE ─────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── OS ──────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ── Node / Frontend ─────────────────────────────────────────────
+node_modules/
+Frontend/dist/
+.next/
+.cache/
+*.tsbuildinfo
+
+# ── Logs ────────────────────────────────────────────────────────
+*.log
+logs/
