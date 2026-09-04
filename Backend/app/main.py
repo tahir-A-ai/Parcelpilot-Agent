@@ -1,6 +1,4 @@
-"""
-FastAPI application entrypoint.
-"""
+"""FastAPI application entrypoint."""
 
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
@@ -23,18 +21,15 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """
-    Lifespan context manager for FastAPI.
-    Initializes the database schema and pre-warms ChromaDB on startup.
-    """
+    """Initialize DB and pre-warm ChromaDB/SentenceTransformer on startup."""
     await init_db()
-    
-    # Pre-warm ChromaDB collection and sentence transformer on main thread
+
+    # Run blocking ML model load in a thread — must not block the event loop.
+    from starlette.concurrency import run_in_threadpool
     from app.tools.document_search import _get_collection
-    _get_collection()
-    
+    await run_in_threadpool(_get_collection)
+
     yield
-    # No teardown needed currently
 
 
 app = FastAPI(
@@ -44,7 +39,6 @@ app = FastAPI(
     description="Backend for the ParcelPilot B2B autonomous support agent.",
 )
 
-# CORS configuration for Vite frontend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -53,7 +47,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global Exception Handler to guarantee structured error format (rules/01 §3)
+
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     import traceback
@@ -68,5 +62,4 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
     )
 
 
-# Mount the API routes
 app.include_router(api_router)

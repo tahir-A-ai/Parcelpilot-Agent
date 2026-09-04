@@ -1,19 +1,8 @@
 """
-ETL Script: ParcelPilot_Assessment_Data.xlsx → SQLite
+ETL Script: ParcelPilot_Assessment_Data.xlsx -> SQLite
 
-Reads the three data sheets (accounts, orders, tickets) and upserts every
-row into the SQLite database. The operation is fully idempotent — re-running
-this script produces no duplicates and updates any changed values in place.
-
-Usage (from Backend/ directory):
-    python scripts/ingest_sqlite.py
-
-Design decisions:
-- `session.merge()` provides upsert semantics: INSERT if PK absent, UPDATE if present.
-- Each table is committed independently so a failure in one sheet does not
-  roll back successful inserts in earlier sheets.
-- Type coercion helpers normalise the inconsistent types openpyxl may return
-  (datetime objects, string timestamps, string booleans, etc.).
+Reads accounts, orders, and tickets from the source Excel sheet and
+idempotently upserts them into the SQLite database.
 """
 
 from __future__ import annotations
@@ -24,8 +13,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-# Ensure Backend/ is on sys.path so `app.*` imports resolve correctly
-# regardless of which directory the script is invoked from.
+# Ensure Backend/ is on sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import openpyxl
@@ -42,12 +30,9 @@ EXCEL_PATH = (
 )
 
 
-# --------------------------------------------------------------------------- #
-# Type-coercion helpers                                                        #
-# --------------------------------------------------------------------------- #
-
+# Type coercion helpers
 def _str(value: object) -> str | None:
-    """Return a stripped string or None for empty / null-like values."""
+    """Return a stripped string or None for empty values."""
     if value is None:
         return None
     s = str(value).strip()
@@ -55,7 +40,7 @@ def _str(value: object) -> str | None:
 
 
 def _bool(value: object) -> bool:
-    """Coerce Excel boolean, integer, or string to Python bool."""
+    """Coerce boolean, integer, or string representations to bool."""
     if isinstance(value, bool):
         return value
     if isinstance(value, int):
@@ -76,13 +61,7 @@ def _float(value: object) -> float:
 
 
 def _dt(value: object) -> datetime | None:
-    """
-    Coerce a cell value to datetime.
-
-    Handles:
-    - Native datetime objects returned by openpyxl for date-formatted cells.
-    - ISO-like string timestamps stored as plain text ("2026-08-16 09:00").
-    """
+    """Coerce cell value to datetime handling both date objects and ISO strings."""
     if value is None:
         return None
     if isinstance(value, datetime):
@@ -103,10 +82,7 @@ def _dt(value: object) -> datetime | None:
 
 
 def _sheet_to_dicts(ws) -> list[dict]:
-    """
-    Convert a worksheet to a list of row dicts keyed by the header row.
-    Completely empty rows are skipped.
-    """
+    """Convert worksheet rows to dicts keyed by header names."""
     headers = [cell.value for cell in ws[1]]
     rows = []
     for row in ws.iter_rows(min_row=2, values_only=True):
@@ -116,10 +92,7 @@ def _sheet_to_dicts(ws) -> list[dict]:
     return rows
 
 
-# --------------------------------------------------------------------------- #
-# Per-sheet ingest functions                                                   #
-# --------------------------------------------------------------------------- #
-
+# Sheet ingest handlers
 async def _ingest_accounts(session: AsyncSession, wb: openpyxl.Workbook) -> int:
     rows = _sheet_to_dicts(wb["accounts"])
     for r in rows:
@@ -174,10 +147,6 @@ async def _ingest_tickets(session: AsyncSession, wb: openpyxl.Workbook) -> int:
         ))
     return len(rows)
 
-
-# --------------------------------------------------------------------------- #
-# Entry point                                                                  #
-# --------------------------------------------------------------------------- #
 
 async def main() -> None:
     if not EXCEL_PATH.exists():

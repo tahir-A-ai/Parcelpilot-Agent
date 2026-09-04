@@ -1,33 +1,15 @@
-# ==============================================================
-# ParcelPilot Backend — Python Dependencies
+# ParcelPilot Backend Dependencies
 # Install: pip install -r requirements.txt
-# Pinned to minimum compatible versions (actual installed shown in comments).
-# ==============================================================
 
-# Web framework & server
-fastapi>=0.115.0           # installed: 0.128.0
-uvicorn[standard]>=0.30.0  # installed: 0.40.0
-
-# Database (async ORM + SQLite driver)
-sqlalchemy>=2.0.36         # installed: 2.0.51
-aiosqlite>=0.20.0          # installed: 0.22.1
-
-# Validation & settings
-pydantic>=2.8.0            # installed: 2.12.5
-pydantic-settings>=2.4.0   # installed: 2.14.2
-
-# Excel ingestion
-openpyxl>=3.1.5            # installed: 3.1.5
-
-# Vector store
-chromadb>=0.5.0            # installed: 1.5.9
-
-# PDF text extraction
-pypdf>=4.3.0               # installed: 6.6.0
-
-# Local embeddings — BAAI/bge-small-en-v1.5 (no API key required)
-sentence-transformers>=3.1.0  # installed: 5.2.0
-
-# Agent framework (Phase 3)
-smolagents>=1.0.0          # installed: 1.26.0
-litellm>=1.0.0             # installed: 1.98.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+sqlalchemy>=2.0.36
+aiosqlite>=0.20.0
+pydantic>=2.8.0
+pydantic-settings>=2.4.0
+openpyxl>=3.1.5
+chromadb>=0.5.0
+pypdf>=4.3.0
+sentence-transformers>=3.1.0
+smolagents>=1.0.0
+litellm>=1.0.0

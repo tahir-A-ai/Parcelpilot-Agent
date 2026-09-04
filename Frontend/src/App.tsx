@@ -18,12 +18,33 @@ function genId(): string {
   return Math.random().toString(36).slice(2) + Date.now().toString(36);
 }
 
-const SUGGESTIONS = [
-  "Cancel order ORD-1001 for me",
-  "What is the cancellation policy?",
-  "Check ticket TKT-501 status",
-  "Was there a pickup delay on my recent order?",
-];
+// Per-account suggestion prompts — tailored to each tenant's data
+const ACCOUNT_SUGGESTIONS: Record<string, string[]> = {
+  "ACCT-001": [
+    "Cancel order ORD-1001 for me",
+    "What is the cancellation policy?",
+    "Check ticket TKT-501 status",
+    "Was there a pickup delay on my recent order?",
+  ],
+  "ACCT-002": [
+    "What are my SLA terms under my service agreement?",
+    "Check ticket TKT-502 status",
+    "Do I qualify for a service credit?",
+    "What is the support response time for my plan?",
+  ],
+  "ACCT-003": [
+    "What is the cancellation policy for my account?",
+    "Check my recent order status",
+    "What are my support SLA terms?",
+    "Was there a delay on my last shipment?",
+  ],
+  "ACCT-004": [
+    "What is the cancellation window for my orders?",
+    "Check ticket TKT-504 status",
+    "What support plan am I on?",
+    "Can I get a service credit for a late delivery?",
+  ],
+};
 
 export default function App() {
   const [accountId, setAccountId] = useState<AccountId>("ACCT-001");
@@ -122,7 +143,12 @@ export default function App() {
       {/* ── Header ─────────────────────────────────────────── */}
       <header className="header">
         <div className="header-brand">
-          <div className="header-logo">✈</div>
+          <div className="header-logo">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M22 2L11 13" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+              <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </div>
           <div>
             <div className="header-title">ParcelPilot AI</div>
             <div className="header-subtitle">Autonomous CS Agent</div>
@@ -166,14 +192,19 @@ export default function App() {
         <div className="chat-feed">
           {messages.length === 0 && !isLoading ? (
             <div className="empty-state">
-              <div className="empty-icon">✈️</div>
+              <div className="empty-icon">
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <path d="M22 2L11 13" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  <path d="M22 2L15 22L11 13L2 9L22 2Z" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </div>
               <div className="empty-title">ParcelPilot AI Agent</div>
               <div className="empty-hint">
                 Acting as <strong style={{ color: "var(--text-accent)", fontWeight: 700 }}>{accountName}</strong>.
                 Query orders, tickets, policies, or request actions like cancellations and escalations.
               </div>
               <div className="suggestion-pills">
-                {SUGGESTIONS.map((s, i) => (
+                {(ACCOUNT_SUGGESTIONS[accountId] ?? ACCOUNT_SUGGESTIONS["ACCT-001"]).map((s, i) => (
                   <button
                     key={i}
                     className="suggestion-pill"

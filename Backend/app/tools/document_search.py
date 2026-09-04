@@ -1,25 +1,14 @@
 """
 Agent Tool: search_documents
 
-Provides the agent with semantic retrieval from the ChromaDB vector store.
-Applies a strict compound metadata filter on every query to enforce:
-  1. Tenant scoping: only GLOBAL documents + caller's own contract are returned.
-  2. Deprecation exclusion: is_deprecated=True documents are NEVER returned.
-
-This enforces PROJECT_SPEC.md §2 (Source Precedence) at the data layer —
-the deprecated v2 policy document is indexed but permanently filtered out.
-
-The function uses a module-level singleton for the ChromaDB collection so
-the BAAI/bge-small-en-v1.5 model is loaded only once per process lifetime.
-
-This function is synchronous (ChromaDB's Python client is inherently sync)
-so smolagents can call it without an async event loop context. In Phase 3
-it will be decorated with @tool from smolagents.
+Performs semantic retrieval over embedded policy and contract documents using ChromaDB,
+enforcing multi-tenant scoping and exclusion of deprecated policies.
 """
 
 from __future__ import annotations
 
 import logging
+import threading
 from typing import Any
 
 import chromadb
@@ -27,8 +16,6 @@ from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunct
 
 from app.core.config.paths import BACKEND_DIR
 from app.core.config.settings import get_settings
-
-import threading
 
 logger = logging.getLogger(__name__)
 
@@ -40,10 +27,7 @@ _collection: chromadb.Collection | None = None
 
 
 def _get_collection() -> chromadb.Collection:
-    """
-    Return the ChromaDB collection, initialising the client and embedding
-    model safely with a threading lock on first call.
-    """
+    """Return the cached ChromaDB collection, initialising on first call."""
     global _client, _embedding_fn, _collection
     with _lock:
         if _collection is not None:
@@ -67,13 +51,13 @@ def _get_collection() -> chromadb.Collection:
             embedding_function=_embedding_fn,
             metadata={"hnsw:space": "cosine"},
         )
-        logger.info("Collection '%s' loaded (%d chunks).", settings.CHROMA_COLLECTION_NAME, _collection.count())
+        logger.info(
+            "Collection '%s' loaded (%d chunks).",
+            settings.CHROMA_COLLECTION_NAME,
+            _collection.count(),
+        )
         return _collection
 
-
-# --------------------------------------------------------------------------- #
-# Public tool function                                                         #
-# --------------------------------------------------------------------------- #
 
 def search_documents(
     account_id: str,
@@ -81,29 +65,13 @@ def search_documents(
     n_results: int = 2,
 ) -> list[dict[str, Any]]:
     """
-    Semantic search over the ParcelPilot policy/contract document store.
+    Search policy and contract documents with strict tenant isolation.
 
-    Applies two mandatory metadata filters on every query
-    (rules/03_security_multitenancy.md §2):
-        - account_id must be "GLOBAL" OR the caller's account_id.
-        - is_deprecated must be False.
-
-    Args:
-        account_id: The authenticated tenant (injected by the orchestrator).
-        query:      Natural-language query string from the agent.
-        n_results:  Maximum number of chunks to return (default 2 for token efficiency).
-
-    Returns:
-        List of result dicts ordered by relevance (ascending cosine distance):
-            {
-                "text":    str,  # Concise chunk excerpt (max 350 chars)
-                "source":  str,  # Source document filename
-            }
-        Returns an empty list if no results match. Never raises.
+    Enforces that only GLOBAL documents or the caller's account documents
+    are returned, and excludes deprecated policies (is_deprecated=False).
     """
     global _collection
 
-    # Compound metadata filter (rules/03 §2):
     where_filter: dict = {
         "$and": [
             {
@@ -127,15 +95,13 @@ def search_documents(
                 include=["documents", "metadatas", "distances"],
             )
 
-            # Unpack ChromaDB's nested list structure (one inner list per query).
             documents: list[str] = results["documents"][0] if results["documents"] else []
             metadatas: list[dict] = results["metadatas"][0] if results["metadatas"] else []
 
             output = []
             for doc, meta in zip(documents, metadatas):
-                # Clean up whitespace and keep chunk extract concise (max 350 chars)
                 cleaned_doc = " ".join(doc.split())
-                # Normalize common non-ASCII chars to prevent Windows cp1252 charmap crashes
+                # Normalize non-ASCII characters to avoid Windows encoding issues
                 cleaned_doc = (
                     cleaned_doc.replace("\u25cf", "-")
                     .replace("\u20b9", "INR ")
@@ -155,7 +121,7 @@ def search_documents(
                 })
 
             logger.debug(
-                "search_documents: account=%s query=%r → %d results",
+                "search_documents: account=%s query=%r -> %d results",
                 account_id, query, len(output),
             )
             return output
