@@ -2,7 +2,7 @@
 Native LiteLLM Tool-Calling Orchestrator for ParcelPilot.
 
 Implements a lightweight, high-speed OpenAI-compatible Tool-Calling ReAct Engine
-using LiteLLM and Groq, eliminating the multi-step prompt bloat and AST execution overhead.
+using LiteLLM and Groq.
 """
 
 import json

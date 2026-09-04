@@ -1,4 +1,4 @@
-﻿# ParcelPilot AI Agent
+# ParcelPilot AI Agent
 
 > **B2B Logistics Customer Support — AI Engineer Assessment Submission**
 
@@ -7,6 +7,10 @@ An autonomous AI customer support agent for ParcelPilot, a B2B logistics platfor
 ---
 
 ## Architecture
+
+<p align="center">
+  <img src="assets/architecture.png" alt="ParcelPilot Architecture Diagram" width="800" />
+</p>
 
 ```
 +-----------------------------------------------------------------------------+
