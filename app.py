@@ -11,6 +11,13 @@ Mounts the FastAPI backend application on Gradio to provide:
 
 import sys
 from pathlib import Path
+import typing
+import typing_extensions
+
+# Python 3.10 typing compatibility shim for litellm and third-party packages
+for _attr in ("NotRequired", "Required", "Self", "TypeVarTuple", "Unpack", "Never", "assert_never"):
+    if not hasattr(typing, _attr) and hasattr(typing_extensions, _attr):
+        setattr(typing, _attr, getattr(typing_extensions, _attr))
 
 ROOT_DIR = Path(__file__).resolve().parent
 BACKEND_DIR = ROOT_DIR / "Backend"
