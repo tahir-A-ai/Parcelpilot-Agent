@@ -118,6 +118,8 @@ User: "Can Northstar cancel ORD-1001 without a fee?"
 
 ```
 Parcelpilot_Agent/
++-- app.py                   # Hugging Face Gradio launcher & FastAPI mounter
++-- requirements.txt         # Single dependency file for local dev & HF Space
 +-- Backend/
 |   +-- app/
 |   |   +-- agents/
@@ -134,15 +136,15 @@ Parcelpilot_Agent/
 |   |       +-- config/settings.py   # Pydantic settings from .env
 |   |       +-- model/models.py      # SQLAlchemy ORM models
 |   +-- data/
-|   |   +-- parcelpilot.db           # SQLite database (gitignored)
-|   |   +-- chroma_db/               # ChromaDB vector store (gitignored)
+|   |   +-- parcelpilot.db           # SQLite database
+|   |   +-- chroma_db/               # ChromaDB vector store
 |   |   +-- raw/                     # Source PDFs + xlsx
 |   +-- scripts/
 |   |   +-- ingest_sqlite.py         # Populates parcelpilot.db from xlsx
 |   |   +-- ingest_chroma.py         # Embeds PDFs into ChromaDB
 |   +-- .env.example                 # Template -- copy to .env and fill keys
-|   +-- requirements.txt
 +-- Frontend/
+    +-- .env.example                 # Template -- VITE_API_URL configuration
     +-- src/
     |   +-- App.tsx                  # Root: state, send flow, account selector
     |   +-- components/
@@ -150,7 +152,7 @@ Parcelpilot_Agent/
     |   |   +-- ActionCard.tsx       # Confirm / Reject card (locks input)
     |   |   +-- ToolBadges.tsx       # Coloured tool pill badges
     |   |   +-- LoadingSkeleton.tsx  # Typing indicator animation
-    |   +-- api.ts                   # sendMessage() + confirmAction()
+    |   +-- api.ts                   # Dynamic API client with VITE_API_URL
     |   +-- types.ts                 # Message, StagedAction, AccountId types
     |   +-- index.css                # Design system -- dark glassmorphism
     +-- package.json
@@ -168,41 +170,51 @@ Parcelpilot_Agent/
 ### 1 — Backend
 
 ```bash
-cd Backend
-
-# Create and activate virtual environment
+# 1. Create and activate virtual environment (from project root)
 python -m venv venv
 venv\Scripts\activate          # Windows
 # source venv/bin/activate     # macOS/Linux
 
-# Install dependencies
+# 2. Install dependencies (from root)
 pip install -r requirements.txt
 
-# Configure environment
-cp .env.example .env
-# Open .env and add your GROQ_API_KEY
+# 3. Configure environment
+cp Backend/.env.example Backend/.env
+# Open Backend/.env and add your GROQ_API_KEY
 
-# Ingest data (only needed once)
+# 4. Ingest data (only needed once if recreating DBs)
+cd Backend
 python scripts/ingest_sqlite.py
 python scripts/ingest_chroma.py
 
-# Start the API server
+# 5. Start the API server
+# Option A: FastAPI development server (port 8000)
 uvicorn app.main:app --reload --port 8000
+
+# Option B: Gradio / Hugging Face launcher (from root, port 7860)
+cd ..
+python app.py
 ```
 
 ### 2 — Frontend
 
 ```bash
 cd Frontend
+
+# (Optional) Configure custom backend API URL (defaults to http://localhost:8000/api/v1)
+cp .env.example .env
+
 npm install
 npm run dev        # Starts at http://localhost:5173
 ```
 
-Open http://localhost:5173. The backend must be running at http://localhost:8000.
+Open http://localhost:5173. The backend must be running.
 
 ---
 
 ## Environment Variables
+
+### Backend (`Backend/.env`)
 
 Copy `Backend/.env.example` to `Backend/.env` and fill in:
 
@@ -217,6 +229,31 @@ CHROMA_PERSIST_DIR=./data/chroma_db
 REFERENCE_DATETIME=2026-08-16T11:00:00+05:30
 HIGH_VALUE_CREDIT_THRESHOLD_INR=1000.0
 ```
+
+### Frontend (`Frontend/.env`)
+
+```env
+# Optional — defaults to http://localhost:8000/api/v1 if unset
+VITE_API_URL=http://localhost:8000/api/v1
+```
+
+---
+
+## Deployment
+
+### Backend — Hugging Face Spaces (Gradio SDK)
+- **Runtime:** Free tier (2 vCPU, 16 GB RAM).
+- **Entrypoint:** Root `app.py` mounts the FastAPI application onto a Gradio health/status interface at port `7860`.
+- **Dependencies:** Root `requirements.txt`.
+- **Secrets:** Set `GROQ_API_KEY` in the Space's **Settings → Variables and secrets**.
+- **Public API:** Available at `https://<username>-<space-name>.hf.space` (interactive docs at `/docs`).
+
+### Frontend — Vercel
+- **Framework Preset:** Vite
+- **Root Directory:** `Frontend`
+- **Build Command:** `npm run build`
+- **Output Directory:** `dist`
+- **Environment Variable:** `VITE_API_URL=https://<username>-<space-name>.hf.space/api/v1`
 
 ---
 
