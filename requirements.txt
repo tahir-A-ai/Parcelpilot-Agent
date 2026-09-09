@@ -1,3 +1,13 @@
-# Root requirements for Hugging Face Spaces & deployment platforms.
-# Points directly to the single source of truth in Backend/requirements.txt.
--r Backend/requirements.txt
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+sqlalchemy>=2.0.36
+aiosqlite>=0.20.0
+pydantic>=2.8.0
+pydantic-settings>=2.4.0
+openpyxl>=3.1.5
+chromadb>=0.5.0
+pypdf>=4.3.0
+sentence-transformers>=3.1.0
+smolagents>=1.0.0
+litellm>=1.0.0
+gradio>=4.40.0
