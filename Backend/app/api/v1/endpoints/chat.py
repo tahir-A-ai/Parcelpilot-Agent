@@ -73,6 +73,8 @@ def _unwrap_reply(raw: Any) -> str:
         .replace("\u2019", "'")
         .replace("\u201c", '"')
         .replace("\u201d", '"')
+        .replace("\u202f", " ")
+        .replace("\xa0", " ")
         .replace("\u20b9", "INR ")
     )
 

@@ -4,7 +4,7 @@ Database session factory and engine configuration using async SQLAlchemy with ai
 
 from __future__ import annotations
 
-from sqlalchemy import event
+from sqlalchemy import URL, event
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -13,9 +13,20 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.orm import DeclarativeBase
 
+from app.core.config.paths import BACKEND_DIR
 from app.core.config.settings import get_settings
 
 settings = get_settings()
+
+
+def _get_async_database_url() -> URL | str:
+    """Resolve database URL to absolute path relative to BACKEND_DIR."""
+    raw_url = settings.DATABASE_URL
+    if "///" in raw_url:
+        _, path_part = raw_url.split("///", 1)
+        abs_path = (BACKEND_DIR / path_part).resolve()
+        return URL.create("sqlite+aiosqlite", database=abs_path.as_posix())
+    return raw_url
 
 
 class Base(DeclarativeBase):
@@ -24,7 +35,7 @@ class Base(DeclarativeBase):
 
 
 engine: AsyncEngine = create_async_engine(
-    settings.DATABASE_URL,
+    _get_async_database_url(),
     echo=(settings.APP_ENV == "development"),
     future=True,
 )

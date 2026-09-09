@@ -62,4 +62,10 @@ async def global_exception_handler(request: Request, exc: Exception) -> JSONResp
     )
 
 
+@app.get("/", tags=["Health"])
+async def root_health_check() -> dict[str, str]:
+    """Root health check for cloud uptime monitoring."""
+    return {"status": "ok", "service": settings.APP_NAME, "version": "1.0.0"}
+
+
 app.include_router(api_router)
