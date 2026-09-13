@@ -8,21 +8,46 @@ enforcing multi-tenant scoping and exclusion of deprecated policies.
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from typing import Any
 
 import chromadb
-from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 
 from app.core.config.paths import BACKEND_DIR
 from app.core.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
+
+class FastEmbedBGEFunction(EmbeddingFunction[Documents]):
+    """
+    Lightweight ChromaDB embedding function using fastembed (ONNX runtime).
+    Consumes ~40MB RAM vs ~500MB with PyTorch sentence-transformers.
+    Uses exact same BAAI/bge-small-en-v1.5 model (384 dims, cosine distance).
+    """
+
+    def __init__(self, model_name: str = "BAAI/bge-small-en-v1.5"):
+        self.model_name = model_name
+        self._model = None
+
+    def _get_model(self):
+        if self._model is None:
+            from fastembed import TextEmbedding
+            cache_dir = os.environ.get("FASTEMBED_CACHE_PATH", None)
+            self._model = TextEmbedding(model_name=self.model_name, cache_dir=cache_dir)
+        return self._model
+
+    def __call__(self, input: Documents) -> Embeddings:
+        model = self._get_model()
+        return [e.tolist() for e in model.embed(input)]
+
+
 # Module-level singletons protected by a thread lock
 _lock = threading.Lock()
 _client: chromadb.PersistentClient | None = None
-_embedding_fn: SentenceTransformerEmbeddingFunction | None = None
+_embedding_fn: FastEmbedBGEFunction | None = None
 _collection: chromadb.Collection | None = None
 
 
@@ -41,15 +66,7 @@ def _get_collection() -> chromadb.Collection:
             _client = chromadb.PersistentClient(path=str(chroma_dir))
 
         if _embedding_fn is None:
-            try:
-                import torch
-                torch.set_num_threads(1)
-            except Exception:
-                pass
-            _embedding_fn = SentenceTransformerEmbeddingFunction(
-                model_name="BAAI/bge-small-en-v1.5",
-                normalize_embeddings=True,
-            )
+            _embedding_fn = FastEmbedBGEFunction(model_name="BAAI/bge-small-en-v1.5")
 
         _collection = _client.get_or_create_collection(
             name=settings.CHROMA_COLLECTION_NAME,
