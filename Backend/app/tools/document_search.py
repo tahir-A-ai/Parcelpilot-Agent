@@ -13,47 +13,34 @@ import threading
 from typing import Any
 
 import chromadb
-from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 
 from app.core.config.paths import BACKEND_DIR
 from app.core.config.settings import get_settings
 
 logger = logging.getLogger(__name__)
 
-
-class FastEmbedBGEFunction(EmbeddingFunction[Documents]):
-    """
-    Lightweight ChromaDB embedding function using fastembed (ONNX runtime).
-    Consumes ~40MB RAM vs ~500MB with PyTorch sentence-transformers.
-    Uses exact same BAAI/bge-small-en-v1.5 model (384 dims, cosine distance).
-    """
-
-    def __init__(self, model_name: str = "BAAI/bge-small-en-v1.5"):
-        self.model_name = model_name
-        self._model = None
-
-    def _get_model(self):
-        if self._model is None:
-            from fastembed import TextEmbedding
-            cache_dir = os.environ.get("FASTEMBED_CACHE_PATH", None)
-            self._model = TextEmbedding(model_name=self.model_name, cache_dir=cache_dir)
-        return self._model
-
-    def __call__(self, input: Documents) -> Embeddings:
-        model = self._get_model()
-        return [e.tolist() for e in model.embed(input)]
-
-
 # Module-level singletons protected by a thread lock
 _lock = threading.Lock()
 _client: chromadb.PersistentClient | None = None
-_embedding_fn: FastEmbedBGEFunction | None = None
 _collection: chromadb.Collection | None = None
+_embedding_model: Any = None
+
+
+def _get_embedding(query: str) -> list[float]:
+    """Generate 384-dimensional embedding vector using fastembed (ONNX runtime)."""
+    global _embedding_model
+    with _lock:
+        if _embedding_model is None:
+            from fastembed import TextEmbedding
+            cache_dir = os.environ.get("FASTEMBED_CACHE_PATH", None)
+            _embedding_model = TextEmbedding(model_name="BAAI/bge-small-en-v1.5", cache_dir=cache_dir)
+        embeddings = list(_embedding_model.embed([query]))
+        return embeddings[0].tolist()
 
 
 def _get_collection() -> chromadb.Collection:
     """Return the cached ChromaDB collection, initialising on first call."""
-    global _client, _embedding_fn, _collection
+    global _client, _collection
     with _lock:
         if _collection is not None:
             return _collection
@@ -65,13 +52,8 @@ def _get_collection() -> chromadb.Collection:
         if _client is None:
             _client = chromadb.PersistentClient(path=str(chroma_dir))
 
-        if _embedding_fn is None:
-            _embedding_fn = FastEmbedBGEFunction(model_name="BAAI/bge-small-en-v1.5")
-
-        _collection = _client.get_or_create_collection(
+        _collection = _client.get_collection(
             name=settings.CHROMA_COLLECTION_NAME,
-            embedding_function=_embedding_fn,
-            metadata={"hnsw:space": "cosine"},
         )
         logger.info(
             "Collection '%s' loaded (%d chunks).",
@@ -109,9 +91,10 @@ def search_documents(
     for attempt in range(2):
         try:
             collection = _get_collection()
+            query_vector = _get_embedding(query)
 
             results = collection.query(
-                query_texts=[query],
+                query_embeddings=[query_vector],
                 n_results=n_results,
                 where=where_filter,
                 include=["documents", "metadatas", "distances"],
