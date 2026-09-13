@@ -1,14 +1,3 @@
----
-title: Parcelpilot Backend
-emoji: 📦
-colorFrom: blue
-colorTo: indigo
-sdk: gradio
-sdk_version: 4.44.0
-app_file: app.py
-pinned: false
----
-
 # ParcelPilot AI Agent
 
 > **B2B Logistics Customer Support — AI Engineer Assessment Submission**
@@ -118,8 +107,7 @@ User: "Can Northstar cancel ORD-1001 without a fee?"
 
 ```
 Parcelpilot_Agent/
-+-- app.py                   # Hugging Face Gradio launcher & FastAPI mounter
-+-- requirements.txt         # Single dependency file for local dev & HF Space
++-- requirements.txt         # Unified dependencies (CPU-optimized for cloud deployment)
 +-- Backend/
 |   +-- app/
 |   |   +-- agents/
@@ -241,19 +229,20 @@ VITE_API_URL=http://localhost:8000/api/v1
 
 ## Deployment
 
-### Backend — Hugging Face Spaces (Gradio SDK)
-- **Runtime:** Free tier (2 vCPU, 16 GB RAM).
-- **Entrypoint:** Root `app.py` mounts the FastAPI application onto a Gradio health/status interface at port `7860`.
-- **Dependencies:** Root `requirements.txt`.
-- **Secrets:** Set `GROQ_API_KEY` in the Space's **Settings → Variables and secrets**.
-- **Public API:** Available at `https://<username>-<space-name>.hf.space` (interactive docs at `/docs`).
+### Backend — Render (Web Service)
+- **Runtime:** Python 3
+- **Build Command:** pip install -r requirements.txt
+- **Start Command:** cd Backend && uvicorn app.main:app --host 0.0.0.0 --port 
+- **Environment Variable:** GROQ_API_KEY=gsk_...
+- **Public API:** Available at https://<your-service-name>.onrender.com (interactive Swagger docs at /docs).
 
 ### Frontend — Vercel
 - **Framework Preset:** Vite
-- **Root Directory:** `Frontend`
-- **Build Command:** `npm run build`
-- **Output Directory:** `dist`
-- **Environment Variable:** `VITE_API_URL=https://<username>-<space-name>.hf.space/api/v1`
+- **Root Directory:** Frontend
+- **Build Command:** 
+pm run build
+- **Output Directory:** dist
+- **Environment Variable:** VITE_API_URL=https://<your-service-name>.onrender.com/api/v1
 
 ---
 

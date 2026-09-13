@@ -41,6 +41,11 @@ def _get_collection() -> chromadb.Collection:
             _client = chromadb.PersistentClient(path=str(chroma_dir))
 
         if _embedding_fn is None:
+            try:
+                import torch
+                torch.set_num_threads(1)
+            except Exception:
+                pass
             _embedding_fn = SentenceTransformerEmbeddingFunction(
                 model_name="BAAI/bge-small-en-v1.5",
                 normalize_embeddings=True,

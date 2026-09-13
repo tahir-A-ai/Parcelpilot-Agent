@@ -7,12 +7,7 @@ from fastapi import FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
-import typing
-import typing_extensions
 
-for _attr in ("NotRequired", "Required", "Self", "TypeVarTuple", "Unpack", "Never", "assert_never"):
-    if not hasattr(typing, _attr) and hasattr(typing_extensions, _attr):
-        setattr(typing, _attr, getattr(typing_extensions, _attr))
 
 import litellm
 litellm.suppress_debug_info = True
@@ -28,14 +23,7 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Initialize DB and pre-warm ChromaDB/SentenceTransformer on startup."""
     await init_db()
-
-    # Run blocking ML model load in a thread — must not block the event loop.
-    from starlette.concurrency import run_in_threadpool
-    from app.tools.document_search import _get_collection
-    await run_in_threadpool(_get_collection)
-
     yield
 
 
