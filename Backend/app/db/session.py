@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 from sqlalchemy import URL, event, text
+from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -68,9 +69,7 @@ engine_kwargs = {
 # Add connection pool settings for Postgres
 if is_postgres():
     engine_kwargs.update({
-        "pool_size": 10,
-        "max_overflow": 20,
-        "pool_pre_ping": True,
+        "poolclass": NullPool,
         "connect_args": {"ssl": "require"},
     })
 

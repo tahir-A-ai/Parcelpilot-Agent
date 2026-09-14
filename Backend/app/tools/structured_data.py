@@ -32,9 +32,11 @@ _ACCESS_DENIED: dict = {
 
 def _get_db_path() -> str:
     """Resolve absolute path to parcelpilot.db from settings."""
-    url = get_settings().DATABASE_URL
-    rel_path = url.split("///", 1)[1]
-    return str((BACKEND_DIR / rel_path).resolve())
+    url = get_settings().DATABASE_URL or ""
+    if "///" in url:
+        rel_path = url.split("///", 1)[1]
+        return str((BACKEND_DIR / rel_path).resolve())
+    return str((BACKEND_DIR / "data" / "parcelpilot.db").resolve())
 
 
 def _open_conn() -> sqlite3.Connection:

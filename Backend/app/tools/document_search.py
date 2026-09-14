@@ -178,27 +178,26 @@ def _search_chroma(account_id: str, query_vector: list[float], n_results: int) -
     return output
 
 
-def search_documents(
+async def search_documents_async(
     account_id: str,
     query: str,
     n_results: int = 2,
 ) -> list[dict[str, Any]]:
     """
-    Search policy and contract documents with strict tenant isolation.
-    Dispatches to PostgreSQL + pgvector if DATABASE_URL is PostgreSQL,
-    otherwise falls back to ChromaDB for local dev.
+    Async search of policy and contract documents with strict tenant isolation.
+    Executes natively on the event loop for FastAPI endpoints without threadpool overhead.
     """
     for attempt in range(2):
         try:
             query_vector = _get_embedding(query)
 
             if is_postgres():
-                output = _run_async(_search_postgres(account_id, query_vector, n_results))
+                output = await _search_postgres(account_id, query_vector, n_results)
             else:
                 output = _search_chroma(account_id, query_vector, n_results)
 
             logger.debug(
-                "search_documents (%s): account=%s query=%r -> %d results",
+                "search_documents_async (%s): account=%s query=%r -> %d results",
                 "Postgres" if is_postgres() else "Chroma",
                 account_id, query, len(output),
             )
@@ -206,10 +205,21 @@ def search_documents(
 
         except Exception as exc:
             logger.warning(
-                "search_documents attempt %d failed: account=%s query=%r (%s). Retrying...",
+                "search_documents_async attempt %d failed: account=%s query=%r (%s). Retrying...",
                 attempt + 1, account_id, query, exc,
             )
             if attempt == 1:
-                logger.exception("search_documents failed permanently on retry")
+                logger.exception("search_documents_async failed permanently on retry")
                 return [{"error": str(exc), "code": "VECTOR_SEARCH_ERROR", "text": "", "source": ""}]
     return []
+
+
+def search_documents(
+    account_id: str,
+    query: str,
+    n_results: int = 2,
+) -> list[dict[str, Any]]:
+    """
+    Synchronous search_documents for smolagents / AgentOrchestrator tools.
+    """
+    return _run_async(search_documents_async(account_id, query, n_results))

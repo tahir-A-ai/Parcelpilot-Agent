@@ -24,7 +24,7 @@ from app.core.schema.schemas import ChatRequest
 from app.core.schema.responses import SuccessResponse, ErrorResponse
 from app.agents.orchestrator import get_agent
 from app.tools.structured_data import query_structured_data
-from app.tools.document_search import search_documents
+from app.tools.document_search import search_documents, search_documents_async
 
 router = APIRouter(prefix="/chat", tags=["Agent"])
 
@@ -116,7 +116,7 @@ async def _extract_staged_action(session_id: str, db_session: AsyncSession) -> d
     }
 
 
-def _build_grounded_context(account_id: str, message: str, history: list | None = None) -> str:
+async def _build_grounded_context(account_id: str, message: str, history: list | None = None) -> str:
     """
     Assemble verified operational facts (orders, tickets, contracts, policies)
     for referenced entities to enable accurate, rapid resolution.
@@ -146,7 +146,7 @@ def _build_grounded_context(account_id: str, message: str, history: list | None 
     # 3. Customer contract lookup
     try:
         if account_id != 'GLOBAL':
-            contract_docs = search_documents(account_id, 'agreement terms contract service level', n_results=1)
+            contract_docs = await search_documents_async(account_id, 'agreement terms contract service level', n_results=1)
             for d in contract_docs:
                 if d.get('text') and d.get('source'):
                     facts.append(f"- Customer Agreement ({d.get('source')}): {d.get('text')}")
@@ -155,7 +155,7 @@ def _build_grounded_context(account_id: str, message: str, history: list | None 
 
     # 4. Relevant policy excerpt
     try:
-        docs = search_documents("GLOBAL", text_to_scan, n_results=1)
+        docs = await search_documents_async("GLOBAL", text_to_scan, n_results=1)
         if docs:
             for d in docs:
                 facts.append(f"- Policy Excerpt ({d.get('source')}): {d.get('text')}")
@@ -192,7 +192,7 @@ async def chat_with_agent(
         agent = get_agent(account_id=request.account_id, session_id=request.session_id)
 
         # Assemble prompt with grounded context and recent history (capped at 4 turns)
-        grounded_context = _build_grounded_context(request.account_id, request.message, request.history)
+        grounded_context = await _build_grounded_context(request.account_id, request.message, request.history)
         task_sections = []
         if grounded_context:
             task_sections.append(grounded_context)
@@ -273,7 +273,7 @@ async def chat_with_agent_stream(
     agent = get_agent(account_id=request.account_id, session_id=request.session_id)
 
     # Assemble prompt with grounded context and recent history (capped at 4 turns)
-    grounded_context = _build_grounded_context(request.account_id, request.message, request.history)
+    grounded_context = await _build_grounded_context(request.account_id, request.message, request.history)
     task_sections = []
     if grounded_context:
         task_sections.append(grounded_context)
