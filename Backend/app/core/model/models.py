@@ -1,7 +1,7 @@
 """
 SQLAlchemy ORM models for ParcelPilot.
 
-Defines Account, Order, Ticket, StagedAction, and Credit entities with
+Defines Account, Order, Ticket, StagedAction, Credit, and PolicyChunk entities with
 multi-tenant foreign key scoping and relationship definitions.
 """
 
@@ -10,6 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from pgvector.sqlalchemy import Vector
 
 from app.db.session import Base
 
@@ -135,3 +136,19 @@ class Credit(Base):
 
     def __repr__(self) -> str:
         return f"<Credit id={self.credit_id!r} amount={self.amount_inr}>"
+
+
+class PolicyChunk(Base):
+    """Semantic chunk from policy or contract documents for vector search."""
+    __tablename__ = "policy_chunks"
+
+    chunk_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    account_id: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
+    source_file: Mapped[str] = mapped_column(String(256), nullable=False)
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    is_deprecated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    embedding = mapped_column(Vector(384), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+    def __repr__(self) -> str:
+        return f"<PolicyChunk id={self.chunk_id!r} account={self.account_id!r} file={self.source_file!r}>"
