@@ -4,11 +4,11 @@
 
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Send, FlaskConical, Hash } from "lucide-react";
-import { sendMessage } from "./api";
+import { streamMessage } from "./api";
+import type { ToolLog, ChatResponse } from "./api";
 import type { Message, AccountId } from "./types";
 import { ACCOUNTS } from "./types";
 import ChatMessage from "./components/ChatMessage";
-import LoadingSkeleton from "./components/LoadingSkeleton";
 
 // Native browser UUID
 function genId(): string {
@@ -78,7 +78,18 @@ export default function App() {
         timestamp: new Date(),
       };
 
-      setMessages((prev) => [...prev, userMsg]);
+      const botMsgId = genId();
+      const botMsg: Message = {
+        id: botMsgId,
+        role: "bot",
+        text: "",
+        timestamp: new Date(),
+        tool_logs: [],
+        staged_action: null,
+        action_resolved: null,
+      };
+
+      setMessages((prev) => [...prev, userMsg, botMsg]);
       setInputText("");
       setIsLoading(true);
 
@@ -89,28 +100,87 @@ export default function App() {
           .map((m) => ({ role: m.role === "user" ? "user" : "assistant", content: m.text }))
           .slice(-10); // last 10 turns max
 
-        const data = await sendMessage(accountId, trimmed, sessionId, history);
-
-        const botMsg: Message = {
-          id: genId(),
-          role: "bot",
-          text: data.reply,
-          timestamp: new Date(),
-          tool_logs: data.tool_logs,
-          staged_action: data.staged_action,
-          action_resolved: null,
-        };
-
-        setMessages((prev) => [...prev, botMsg]);
+        await streamMessage(accountId, trimmed, sessionId, history, {
+          onToolStart: (toolName: string, step: number) => {
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== botMsgId) return m;
+                const existing = m.tool_logs || [];
+                if (existing.some((t) => t.tool_name === toolName && t.step === step)) {
+                  return m;
+                }
+                return {
+                  ...m,
+                  tool_logs: [
+                    ...existing,
+                    { step, tool_name: toolName, arguments: {}, observations: "" },
+                  ],
+                };
+              })
+            );
+          },
+          onToolEnd: (tool: ToolLog) => {
+            setMessages((prev) =>
+              prev.map((m) => {
+                if (m.id !== botMsgId) return m;
+                const existing = m.tool_logs || [];
+                const updated = existing.map((t) =>
+                  t.tool_name === tool.tool_name && t.step === tool.step ? tool : t
+                );
+                if (!existing.some((t) => t.tool_name === tool.tool_name && t.step === tool.step)) {
+                  updated.push(tool);
+                }
+                return { ...m, tool_logs: updated };
+              })
+            );
+          },
+          onToken: (token: string) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === botMsgId ? { ...m, text: m.text + token } : m
+              )
+            );
+          },
+          onDone: (data: ChatResponse) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === botMsgId
+                  ? {
+                      ...m,
+                      text: data.reply || m.text,
+                      tool_logs: data.tool_logs && data.tool_logs.length > 0 ? data.tool_logs : m.tool_logs,
+                      staged_action: data.staged_action,
+                    }
+                  : m
+              )
+            );
+          },
+          onError: (err: Error) => {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === botMsgId
+                  ? {
+                      ...m,
+                      text: err.message || "Unable to complete request. Please try again.",
+                      is_error: true,
+                    }
+                  : m
+              )
+            );
+          },
+        });
       } catch (err) {
-        const errMsg: Message = {
-          id: genId(),
-          role: "bot",
-          text: err instanceof Error ? err.message : "Unable to complete request. Please try again.",
-          timestamp: new Date(),
-          is_error: true,
-        };
-        setMessages((prev) => [...prev, errMsg]);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === botMsgId
+              ? {
+                  ...m,
+                  text: err instanceof Error ? err.message : "Unable to complete request. Please try again.",
+                  is_error: true,
+                }
+              : m
+          )
+        );
       } finally {
         setIsLoading(false);
       }
@@ -226,7 +296,7 @@ export default function App() {
                   onActionResolved={handleActionResolved}
                 />
               ))}
-              {isLoading && <LoadingSkeleton />}
+              
             </>
           )}
         </div>

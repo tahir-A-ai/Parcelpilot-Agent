@@ -10,6 +10,10 @@ import re
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
+import asyncio
+import queue
+import threading
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.concurrency import run_in_threadpool
@@ -242,3 +246,97 @@ async def chat_with_agent(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=detail,
         )
+
+
+
+@router.post("/stream")
+async def chat_with_agent_stream(
+    request: ChatRequest, db: AsyncSession = Depends(get_db)
+):
+    """
+    Stream customer message processing in real-time via Server-Sent Events (SSE).
+    
+    Yields JSON events:
+    - {"type": "tool_start", "step": 1, "tool_name": "...", "arguments": {...}}
+    - {"type": "tool_end", "step": 1, "tool_name": "...", "observations": "..."}
+    - {"type": "token", "text": "..."}
+    - {"type": "done", "reply": "...", "tool_logs": [...], "staged_action": {...}}
+    - {"type": "error", "detail": "..."}
+    """
+    # Validate account existence
+    result = await db.execute(
+        select(Account).where(Account.account_id == request.account_id)
+    )
+    account = result.scalars().first()
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Account '{request.account_id}' not found.",
+        )
+
+    agent = get_agent(account_id=request.account_id, session_id=request.session_id)
+
+    # Assemble prompt with grounded context and recent history (capped at 4 turns)
+    grounded_context = _build_grounded_context(request.account_id, request.message, request.history)
+    task_sections = []
+    if grounded_context:
+        task_sections.append(grounded_context)
+
+    if request.history:
+        history_lines = [
+            f"{'Customer' if turn.role == 'user' else 'Agent'}: {turn.content}"
+            for turn in request.history[-4:]
+        ]
+        task_sections.append("[RECENT CONVERSATION CONTEXT]\n" + "\n".join(history_lines))
+
+    task_sections.append(f"[CURRENT CUSTOMER MESSAGE]\n{request.message}")
+    task = "\n\n".join(task_sections)
+
+    async def event_generator():
+        try:
+            q = queue.Queue()
+
+            def _producer():
+                try:
+                    for event in agent.run_stream(task):
+                        q.put(event)
+                except Exception as ex:
+                    q.put({"type": "error", "detail": str(ex)})
+                finally:
+                    q.put(None)
+
+            t = threading.Thread(target=_producer, daemon=True)
+            t.start()
+
+            while True:
+                try:
+                    item = q.get_nowait()
+                except queue.Empty:
+                    await asyncio.sleep(0.01)
+                    continue
+
+                if item is None:
+                    break
+
+                if item.get("type") == "done":
+                    if not item.get("staged_action"):
+                        staged = await _extract_staged_action(request.session_id, db)
+                        item["staged_action"] = staged
+                    if item.get("reply"):
+                        item["reply"] = _unwrap_reply(item["reply"])
+
+                yield f"data: {json.dumps(item)}\n\n"
+
+        except Exception as exc:
+            err_event = {"type": "error", "detail": str(exc)}
+            yield f"data: {json.dumps(err_event)}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

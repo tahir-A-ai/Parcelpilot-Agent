@@ -49,10 +49,16 @@ export default function ChatMessage({ message, sessionId, onActionResolved }: Ch
           <div className="message-bubble markdown-body">
             {isUser ? (
               message.text
-            ) : (
+            ) : message.text ? (
               <ReactMarkdown remarkPlugins={[remarkGfm]}>
                 {message.text}
               </ReactMarkdown>
+            ) : (
+              <div className="typing-dots" style={{ display: "inline-flex", gap: "4px", padding: "6px 2px" }}>
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+                <span className="typing-dot" />
+              </div>
             )}
           </div>
         )}

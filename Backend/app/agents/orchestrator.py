@@ -8,7 +8,7 @@ using LiteLLM and Groq.
 import json
 import logging
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Generator
 
 import litellm
 litellm.suppress_debug_info = True
@@ -34,24 +34,23 @@ class AgentResult:
         return self.reply
 
 
-# OpenAI-compatible JSON tool schemas
 TOOLS_SCHEMA = [
     {
         "type": "function",
         "function": {
             "name": "query_structured_data",
-            "description": "Query the live SQLite database for orders, tickets, and account details.",
+            "description": "Query structured records (order or ticket) from the database by ID.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query_type": {
                         "type": "string",
-                        "enum": ["order", "ticket", "account", "orders_for_account", "tickets_for_account"],
-                        "description": "The entity type to look up."
+                        "enum": ["order", "ticket"],
+                        "description": "The type of record to look up."
                     },
                     "identifier": {
                         "type": "string",
-                        "description": "The primary identifier (e.g. 'ORD-1001', 'TKT-501', 'ACCT-001')."
+                        "description": "The unique identifier (e.g. ORD-1001 or TKT-1001)."
                     }
                 },
                 "required": ["query_type", "identifier"]
@@ -62,17 +61,17 @@ TOOLS_SCHEMA = [
         "type": "function",
         "function": {
             "name": "search_documents",
-            "description": "Semantic vector search over embedded policy and contract documents.",
+            "description": "Search contract terms, SLAs, and policy documents using semantic retrieval.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Natural-language query string."
+                        "description": "Natural-language query describing the policy rule or contract term needed."
                     },
                     "n_results": {
                         "type": "integer",
-                        "description": "Maximum number of chunks to return (default 2)."
+                        "description": "Max chunks to retrieve (default 2)."
                     }
                 },
                 "required": ["query"]
@@ -146,7 +145,7 @@ class NativeAgent:
 
     def run(self, task: str) -> AgentResult:
         """
-        Run the ReAct tool-calling loop.
+        Run the ReAct tool-calling loop synchronously.
         
         Executes up to `max_steps` turns, dispatching tool calls and returning
         the final natural-language response, structured tool logs, and any staged action.
@@ -190,7 +189,6 @@ class NativeAgent:
 
             # 1. Model requested one or more tool calls
             if hasattr(message, "tool_calls") and message.tool_calls:
-                # Convert message object to dictionary for the messages thread
                 msg_dict = {
                     "role": "assistant",
                     "content": message.content or None,
@@ -216,14 +214,11 @@ class NativeAgent:
                     except Exception:
                         kwargs = {}
 
-                    # Execute tool locally
                     observation = self._execute_tool(fn_name, kwargs)
 
-                    # Capture staged action if stage_action tool was invoked
                     if fn_name == "stage_action" and isinstance(observation, dict) and observation.get("status") == "AWAITING_CONFIRMATION":
                         last_staged_action = observation
 
-                    # Record structured tool log
                     tool_logs.append({
                         "step": step_idx,
                         "tool_name": fn_name,
@@ -231,7 +226,6 @@ class NativeAgent:
                         "observations": str(observation),
                     })
 
-                    # Append tool observation back to message thread
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tc.id,
@@ -253,11 +247,165 @@ class NativeAgent:
             staged_action=last_staged_action,
         )
 
+    def run_stream(self, task: str) -> Generator[dict[str, Any], None, None]:
+        """
+        Run the ReAct tool-calling loop with real-time streaming events.
+        
+        Yields:
+            {"type": "tool_start", "step": step_idx, "tool_name": fn_name, "arguments": kwargs}
+            {"type": "tool_end", "step": step_idx, "tool_name": fn_name, "arguments": kwargs, "observations": str(obs)}
+            {"type": "token", "text": chunk_text}
+            {"type": "done", "reply": final_reply, "tool_logs": tool_logs, "staged_action": last_staged_action}
+        """
+        system_prompt = get_system_prompt()
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": task},
+        ]
+
+        tool_logs: list[dict[str, Any]] = []
+        last_staged_action: dict[str, Any] | None = None
+        final_reply_chunks: list[str] = []
+
+        for step_idx in range(1, self.max_steps + 1):
+            response = None
+            for attempt in range(3):
+                try:
+                    response = litellm.completion(
+                        model=self.model_id,
+                        messages=messages,
+                        tools=TOOLS_SCHEMA,
+                        tool_choice="auto",
+                        api_key=self.settings.GROQ_API_KEY,
+                        temperature=0.0,
+                        stream=True,
+                    )
+                    break
+                except (litellm.RateLimitError, litellm.InternalServerError, litellm.APIConnectionError, litellm.ServiceUnavailableError) as err:
+                    logger.warning("Groq transient error on step %d, attempt %d: %s. Retrying in 4s...", step_idx, attempt + 1, err)
+                    if attempt < 2:
+                        import time
+                        time.sleep(4.0)
+                    else:
+                        raise err
+                except Exception as e:
+                    logger.error("NativeAgent stream completion error on step %d: %s", step_idx, e)
+                    raise e
+
+            # Accumulate streaming deltas from chunk stream
+            tool_calls_map: dict[int, dict[str, str]] = {}
+            step_content_chunks: list[str] = []
+
+            for chunk in response:
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if not delta:
+                    continue
+
+                if hasattr(delta, "tool_calls") and delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        idx = tc.index if tc.index is not None else 0
+                        if idx not in tool_calls_map:
+                            tool_calls_map[idx] = {
+                                "id": tc.id or "",
+                                "name": (tc.function.name if tc.function and tc.function.name else ""),
+                                "arguments": ""
+                            }
+                        if tc.id:
+                            tool_calls_map[idx]["id"] = tc.id
+                        if tc.function and tc.function.name:
+                            tool_calls_map[idx]["name"] = tc.function.name
+                        if tc.function and tc.function.arguments:
+                            tool_calls_map[idx]["arguments"] += tc.function.arguments
+
+                if hasattr(delta, "content") and delta.content:
+                    step_content_chunks.append(delta.content)
+                    final_reply_chunks.append(delta.content)
+                    yield {"type": "token", "text": delta.content}
+
+            # 1. If tools were called
+            if tool_calls_map:
+                tool_calls_list = []
+                for idx in sorted(tool_calls_map.keys()):
+                    tc_info = tool_calls_map[idx]
+                    tool_calls_list.append({
+                        "id": tc_info["id"] or f"call_{step_idx}_{idx}",
+                        "type": "function",
+                        "function": {
+                            "name": tc_info["name"],
+                            "arguments": tc_info["arguments"],
+                        }
+                    })
+
+                msg_dict = {
+                    "role": "assistant",
+                    "content": "".join(step_content_chunks) or None,
+                    "tool_calls": tool_calls_list,
+                }
+                messages.append(msg_dict)
+
+                for tc_entry in tool_calls_list:
+                    fn_name = tc_entry["function"]["name"]
+                    raw_args = tc_entry["function"]["arguments"]
+                    try:
+                        kwargs = json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                    except Exception:
+                        kwargs = {}
+
+                    yield {
+                        "type": "tool_start",
+                        "step": step_idx,
+                        "tool_name": fn_name,
+                        "arguments": kwargs,
+                    }
+
+                    observation = self._execute_tool(fn_name, kwargs)
+
+                    if fn_name == "stage_action" and isinstance(observation, dict) and observation.get("status") == "AWAITING_CONFIRMATION":
+                        last_staged_action = observation
+
+                    log_entry = {
+                        "step": step_idx,
+                        "tool_name": fn_name,
+                        "arguments": kwargs,
+                        "observations": str(observation),
+                    }
+                    tool_logs.append(log_entry)
+
+                    yield {
+                        "type": "tool_end",
+                        "step": step_idx,
+                        "tool_name": fn_name,
+                        "arguments": kwargs,
+                        "observations": str(observation),
+                    }
+
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": tc_entry["id"],
+                        "name": fn_name,
+                        "content": json.dumps(observation, default=str),
+                    })
+
+            # 2. No tool calls -> final answer reached
+            else:
+                break
+
+        full_reply = "".join(final_reply_chunks).strip()
+        if not full_reply and messages:
+            full_reply = messages[-1].get("content", "")
+
+        yield {
+            "type": "done",
+            "reply": full_reply,
+            "tool_logs": tool_logs,
+            "staged_action": last_staged_action,
+        }
+
 
 def get_agent(account_id: str, session_id: str) -> NativeAgent:
     """Factory function to instantiate a tenant-isolated NativeAgent.
     
-    Model is driven by settings.LLM_MODEL — set LLM_MODEL in .env to override.
+    Model is driven by settings.LLM_MODEL - set LLM_MODEL in .env to override.
     """
     return NativeAgent(
         account_id=account_id,
