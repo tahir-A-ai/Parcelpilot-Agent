@@ -121,7 +121,6 @@ def _build_grounded_context(account_id: str, message: str, history: list | None 
     Assemble verified operational facts (orders, tickets, contracts, policies)
     for referenced entities to enable accurate, rapid resolution.
     """
-    from app.tools.document_search import _get_collection
 
     facts: list[str] = []
     text_to_scan = message
@@ -146,14 +145,11 @@ def _build_grounded_context(account_id: str, message: str, history: list | None 
 
     # 3. Customer contract lookup
     try:
-        if account_id != "GLOBAL":
-            col = _get_collection()
-            res = col.get(where={"account_id": account_id})
-            if res and res.get("documents"):
-                for doc, meta in zip(res["documents"], res["metadatas"]):
-                    cleaned = " ".join(doc.split())
-                    cleaned = cleaned.replace("\u25cf", "-").replace("\u20b9", "INR ")
-                    facts.append(f"- Customer Agreement ({meta.get('source_file')}): {cleaned}")
+        if account_id != 'GLOBAL':
+            contract_docs = search_documents(account_id, 'agreement terms contract service level', n_results=1)
+            for d in contract_docs:
+                if d.get('text') and d.get('source'):
+                    facts.append(f"- Customer Agreement ({d.get('source')}): {d.get('text')}")
     except Exception:
         pass
 

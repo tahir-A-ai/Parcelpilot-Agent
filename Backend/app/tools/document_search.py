@@ -83,6 +83,11 @@ def _get_chroma_collection():
         return _collection
 
 
+def _get_collection():
+    """Compatibility alias for legacy callers expecting _get_collection."""
+    return _get_chroma_collection()
+
+
 async def _search_postgres(account_id: str, query_vector: list[float], n_results: int) -> list[dict[str, Any]]:
     """Query PostgreSQL policy_chunks using pgvector cosine distance."""
     from app.core.model.models import PolicyChunk
